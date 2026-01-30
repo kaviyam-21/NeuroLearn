@@ -11,9 +11,11 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import logging
 
-from mxnet.gluon.data import dataset
+import torch
+from torch.utils.data import Dataset
+from datasets import load_dataset
 
-class IAMDataset(dataset.ArrayDataset):
+class IAMDataset(Dataset):
     
     """
     Parameters
@@ -84,8 +86,16 @@ class IAMDataset(dataset.ArrayDataset):
         #    os.makedirs(root)
         self._output_form_text_as_array = output_form_text_as_array
         
-        data = self._get_data()
-        super(IAMDataset, self).__init__(data)
+        self._data = self._get_data()
+        self._transform = None
+
+    def transform(self, transform):
+        """
+        Equivalent to gluon.data.Dataset.transform.
+        Sets the transform function to be used in __getitem__.
+        """
+        self._transform = transform
+        return self
         
     def _get_data(self):      
         
@@ -110,9 +120,6 @@ class IAMDataset(dataset.ArrayDataset):
         else:
             images_data = self._process_data()
         
-        
-        #images_data = self._process_data() #comment this line if using pickle
-
         # Extract train or test data out
         train_subjects, test_subjects = self._process_subjects()
         if self._train:
@@ -265,11 +272,11 @@ class IAMDataset(dataset.ArrayDataset):
         train_subjects = []
         test_subjects = []
         for train_list in train_subject_lists:
-            subject_list = pd.read_csv(os.path.join(self._root, "subject", train_list+".txt"))
-            train_subjects.append(subject_list.values)
+            subject_list = pd.read_csv(os.path.join(self._root, "subject", train_list+".txt"), header=None)
+            train_subjects.append(subject_list.values.flatten())
         for test_list in test_subject_lists:
-            subject_list = pd.read_csv(os.path.join(self._root, "subject", test_list+".txt"))
-            test_subjects.append(subject_list.values)
+            subject_list = pd.read_csv(os.path.join(self._root, "subject", test_list+".txt"), header=None)
+            test_subjects.append(subject_list.values.flatten())
 
         train_subjects = np.concatenate(train_subjects)
         test_subjects = np.concatenate(test_subjects)
@@ -308,7 +315,12 @@ class IAMDataset(dataset.ArrayDataset):
         if self._parse_method == "word":
             new_subject_list = []
             for sub in subject_list:
-                new_subject_number = "-".join(sub.split("-")[:3])
+                new_sub_parts = sub.split("-")
+                # Safety check for unexpected format
+                if len(new_sub_parts) >= 3:
+                    new_subject_number = "-".join(new_sub_parts[:3])
+                else:
+                    new_subject_number = sub
                 new_subject_list.append(new_subject_number)
             return new_subject_list
         else:
@@ -429,9 +441,15 @@ class IAMDataset(dataset.ArrayDataset):
     
            
     def _save_dataframe_chunks(self, df, name):
-        for i, df_split in enumerate(np.array_split(df, 4)):
-            filename = name[:-5] + str(i) + ".plk" # remove *.plk in the filename
-            df_split.to_pickle(filename, protocol=2)
+        try:
+            if df is None or not hasattr(df, 'empty') or df.empty:
+                return
+            for i, df_split in enumerate(np.array_split(df, 4)):
+                filename = name[:-5] + str(i) + ".plk" # remove *.plk in the filename
+                if hasattr(df_split, 'to_pickle'):
+                    df_split.to_pickle(filename, protocol=2)
+        except Exception:
+            pass
             
     def _load_dataframe_chunks(self, name):
         image_data_chunks = []
@@ -443,8 +461,15 @@ class IAMDataset(dataset.ArrayDataset):
         
     
                 
+    def __len__(self):
+        return len(self._data)
+
     def __getitem__(self, idx):
-        return (self._data[0].iloc[idx].image, self._data[0].iloc[idx].output)
+        image = self._data.iloc[idx].image
+        output = self._data.iloc[idx].output
+        if self._transform:
+            return self._transform(image, output)
+        return (image, output)
     
 def crop_image(image, bb):
     ''' Helper function to crop the image by the bounding box (in percentages)
@@ -526,3 +551,34 @@ def crop_handwriting_page(image, bb, image_size):
 
     image, _ = resize_image(image, desired_size=image_size)
     return image
+
+class HF_IAMDataset(Dataset):
+    def __init__(self, split='train'):
+        self._ds = load_dataset("Teklia/IAM-line", split=split)
+        self._transform = None
+        
+    def transform(self, transform):
+        self._transform = transform
+        return self
+        
+    def __len__(self):
+        return len(self._ds)
+        
+    def __getitem__(self, idx):
+        sample = self._ds[idx]
+        # Convert PIL image to grayscale numpy array
+        image = sample['image'].convert('L')
+        image = np.array(image)
+        
+        # Resize to match training conditions (60, 800)
+        target_size = (60, 800)
+        image, _ = resize_image(image, target_size)
+        
+        # Original IAMDataset takes image and label as list of words
+        # but HF text is a string. We'll pass it as a list with one string.
+        label = [sample['text']]
+        
+        if self._transform:
+            image, label = self._transform(image, label)
+            
+        return image, label
