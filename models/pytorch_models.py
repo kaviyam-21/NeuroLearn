@@ -103,3 +103,46 @@ class CNNBiLSTM(nn.Module):
         combined_hs = torch.cat(hidden_states, dim=2)
         output = self.decoder(combined_hs)
         return output
+
+class CNNTransformer(nn.Module):
+    """
+    Hybrid Model: CNN (ResNet) Encoder + Transformer Decoder.
+    Combines spatial feature extraction with sequence context.
+    """
+    def __init__(self, alphabet_size, hidden_dim=256, nheads=8, num_layers=4):
+        super(CNNTransformer, self).__init__()
+        # 1. CNN Backbone (Pre-trained ResNet34)
+        resnet = models.resnet34(weights=models.ResNet34_Weights.IMAGENET1K_V1)
+        self.backbone = nn.Sequential(*list(resnet.children())[:-2])
+        
+        # Modify for grayscale
+        original_layer = resnet.conv1
+        new_layer = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        with torch.no_grad():
+            new_layer.weight[:] = original_layer.weight.mean(dim=1, keepdim=True)
+        self.backbone[0] = new_layer
+        
+        # 2. Projection
+        self.proj = nn.Conv2d(512, hidden_dim, kernel_size=1)
+        
+        # 3. Transformer
+        encoder_layer = nn.TransformerEncoderLayer(d_model=hidden_dim, nhead=nheads, batch_first=True)
+        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        
+        # 4. Output
+        self.output = nn.Linear(hidden_dim, alphabet_size)
+
+    def forward(self, x):
+        # Extract features
+        x = self.backbone(x) # (N, 512, H, W)
+        x = self.proj(x)     # (N, hidden_dim, H, W)
+        
+        # Sequence format: (Batch, Seq_len, Features)
+        N, C, H, W = x.shape
+        x = x.flatten(2).permute(0, 2, 1) 
+        
+        # Transformer pass
+        x = self.transformer(x)
+        
+        # Map to alphabet
+        return self.output(x)

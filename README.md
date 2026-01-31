@@ -1,15 +1,40 @@
-# HandwrittenTextRecognition
-Recognizing Handwritten Text by segmenting the page into paragraphs and lines and then converting them to digital text.
+# HTR Modernization (PyTorch)
+Recognizing Handwritten Text by segmenting the page into paragraphs and lines and then converting them to digital text. Now updated with **PyTorch 2.x** and **Hugging Face** dataset support.
 
 # Overview
-This is the full code for 'Handwritten Text Recognition'. This code helps to convert a handwritten page into digital text by identifying the paragraph present in the page, segmenting the lines and running handwriting recognition to accurately identify the text.
+This is a modernized version of the 'Handwritten Text Recognition' project. It identifies paragraphs, segments lines, and converts them to digital text using a CNN-BiLSTM architecture.
 
-# Dependency
-* mxnet
-* pandas
-* matplotlib
-* numpy
-* skimage
+# Setup & Dependencies
+To run this project on any machine:
+1. **Clone the repository**:
+   ```bash
+   git clone https://github.com/kaviyam-21/NeuroLearn.git
+   cd NeuroLearn
+   ```
+2. **Install dependencies**:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+# How to Run
+### 1. Training with Hugging Face (Cloud Data)
+Use a Hugging Face token to download the IAM dataset automatically:
+```powershell
+$env:HF_TOKEN = "your_token_here"
+python handwriting_recognition_pytorch.py --use_hf --epochs 120 --batch_size 32
+```
+
+### 2. High-Accuracy Prediction (TrOCR)
+To avoid overfitting and get professional-grade results, use the TrOCR model:
+```bash
+python predict_trocr.py --image "path/to/your/image.png"
+```
+
+### 3. Custom Model Prediction (Trained Locally)
+To transcribe using your own trained `best_model.pth`:
+```bash
+python predict.py --image "path/to/your/image.png" --type line
+```
 
 # Methodology
 ## Paragraph Segmentation
